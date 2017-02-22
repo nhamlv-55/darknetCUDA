@@ -9,7 +9,10 @@
 #include "demo.h"
 #include <sys/time.h>
 #include <unistd.h>
-
+#include <sys/socket.h>                                                                                       
+#include <sys/un.h>                                                                                           
+#include <unistd.h>                                                                                           
+#include <string.h> 
 #define FRAMES 3
 
 #ifdef OPENCV
@@ -40,6 +43,22 @@ static int demo_index = 0;
 static image images[FRAMES];
 static float *avg;
 
+////CLIENT SETUP
+static  struct sockaddr_un address;                                                                                  
+static  int  socket_fd, nbytes;                                                                                      
+//static  char result[1600];
+//static  char total[640*480*3+1600]; 
+//////////
+
+
+void img_print(image foo){
+	int i;
+	char * new_str ; 
+	for (i=0;i <foo.w*foo.h*foo.c;i++) {
+		printf("%lf ",foo.data[i]);
+	}
+}
+
 void *fetch_in_thread(void *ptr)
 {
     in = get_image_from_stream(cap);
@@ -52,6 +71,10 @@ void *fetch_in_thread(void *ptr)
 
 void *detect_in_thread(void *ptr)
 {
+	char result[1600];
+	memset(result, 0, sizeof(result));
+	char total[640*480*3+1600];
+	memset(total, 0, sizeof(total));
     float nms = .4;
 
     layer l = net.layers[net.n-1];
@@ -79,9 +102,46 @@ void *detect_in_thread(void *ptr)
     images[demo_index] = det;
     det = images[(demo_index + FRAMES/2 + 1)%FRAMES];
     demo_index = (demo_index + 1)%FRAMES;
-
-    draw_detections(det, l.w*l.h*l.n, demo_thresh, boxes, probs, demo_names, demo_alphabet, demo_classes);
-
+	
+//concat the bbox
+	int i;                         
+    memset(result, '\0', sizeof(result));                                                                     
+                                                                         
+    int count = 0;
+	int num = l.w*l.h*l.n;                                                                                            
+    for(i = 0; i < num; ++i){                                                                                 
+        int class = max_index(probs[i], demo_classes);                                                             
+        float prob = probs[i][class];                                                                         
+        if(prob > 0.2){                                                                                       
+            char buffer[80];
+			memset(buffer, '\0', sizeof(buffer));                                                                                  
+            box b = boxes[i];                                                                                 
+            snprintf(buffer, sizeof buffer, "%.0f %.0f %.0f %.0f %s %.0f%%\n", b.x*640, b.y*480, b.w*640, b.h*480, demo_names[class], prob*100);          
+            strcat(result, buffer);                                                                           
+            count++;                                                                                          
+        }                                                                                                     
+    }                                                                                                         
+    strcat(result, "ended\n");
+	strcat(total, result);
+//concat the pil
+    image copy = copy_image(det);                                                                               
+    if(det.c == 3) rgbgr_image(copy);                                                                           
+    int x,y,k;                                                                                                
+                                                                                                            
+    IplImage *disp = cvCreateImage(cvSize(det.w, det.h), IPL_DEPTH_8U, det.c);                                       
+    int step = disp->widthStep;                                                                               
+    for(y = 0; y < det.h; ++y){                                                                                 
+        for(x = 0; x < det.w; ++x){                                                                             
+            for(k= 0; k < det.c; ++k){                                                                          
+                disp->imageData[y*step + x*det.c + k] = (unsigned char)(get_pixel(copy,x,y,k)*255);             
+            }                                                                                                 
+        }                                                                                                     
+    }
+	strcat(total, disp->imageData);                                                                           
+    free_image(copy);  
+	printf("%i", write(socket_fd, total, sizeof(total)));
+	memset(total, 0, sizeof(total));
+    cvReleaseImage(&disp);                                                                                    
     return 0;
 }
 
@@ -96,6 +156,25 @@ double get_wall_time()
 
 void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh)
 {
+    socket_fd = socket(PF_UNIX, SOCK_STREAM, 0);                                                                 
+    if(socket_fd < 0)                                                                                            
+    {                                                                                                            
+        printf("socket() failed\n");                                                                                
+		exit(0);                                                                                                   
+    }
+
+    memset(&address, 0, sizeof(struct sockaddr_un));                                                             
+                                                                                                              
+    address.sun_family = AF_UNIX;                                                                                
+    snprintf(address.sun_path, 30 , "/tmp/DockerPipes/sss"); 
+
+    if(connect(socket_fd,                                                                                        
+		(struct sockaddr *) &address,                                                                     
+        sizeof(struct sockaddr_un)) != 0)                                                                 
+    {                                                                                                            
+        printf("connect() failed\n");                                                                               
+    return 1;                                                                                                   
+    } 
     //skip = frame_skip;
     image **alphabet = load_alphabet();
     int delay = frame_skip;
@@ -154,7 +233,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
         det_s = in_s;
     }
 
-    int count = 0;
+    int count = 1;
     if(!prefix){
         cvNamedWindow("Demo", CV_WINDOW_NORMAL); 
         cvMoveWindow("Demo", 0, 0);
@@ -163,31 +242,14 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
 
     double before = get_wall_time();
 
-    while(1){
+    while(count){
 //        sleep(0.5);
         ++count;
-        if(1){
+
             if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
             if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
 
-            if(!prefix){
-                show_image(disp, "Demo");
-                int c = cvWaitKey(1);
-                if (c == 10){
-                    if(frame_skip == 0) frame_skip = 60;
-                    else if(frame_skip == 4) frame_skip = 0;
-                    else if(frame_skip == 60) frame_skip = 4;   
-                    else frame_skip = 0;
-                }
-            }else{
-                //char buff[256];
-                //sprintf(buff, "%s_%08d", prefix, count);
-                //save_image(disp, buff);
-		save_image(disp, prefix);
-		//rename("/tmp/DockerPipes/defaultapp/sv01/inpipetemp.jpg", "/tmp/DockerPipes/defaultapp/sv01/inpipe2.jpg");
-		//sleep(1);
-            }
-
+		    save_image(disp, "/tmp/DockerPipes/defaultapp/sv02/inpipe2");
             pthread_join(fetch_thread, 0);
             pthread_join(detect_thread, 0);
 
@@ -197,18 +259,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
             }
             det   = in;
             det_s = in_s;
-        }else {
-            fetch_in_thread(0);
-            det   = in;
-            det_s = in_s;
-            detect_in_thread(0);
-            if(delay == 0) {
-                free_image(disp);
-                disp = det;
-            }
-            show_image(disp, "Demo");
-            cvWaitKey(1);
-        }
+
         --delay;
         if(delay < 0){
             delay = frame_skip;

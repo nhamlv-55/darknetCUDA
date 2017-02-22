@@ -227,6 +227,31 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
     }
 }
 
+
+
+const char* make_message(image im, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes)
+{                                                                                                             
+    int i;                                                                                                    
+	char result[1600];     
+	memset(result, '=', sizeof(memset));          
+	int count = 0;                                                                                           
+    for(i = 0; i < num; ++i){                                                                                 
+        int class = max_index(probs[i], classes);                                                             
+        float prob = probs[i][class];                                                                         
+        if(prob > 0.2){                                                                                    
+            int width = im.h * .012;                                                                          
+            char buffer[80];                                                                                                  
+            box b = boxes[i];                                                                                 
+            snprintf(buffer, sizeof buffer, "x:%f y:%f w:%f h:%f %s: %.0f%%\n", b.x, b.y, b.w, b.h, names[class], prob*100);                                                   
+			strcat(result, buffer);
+			count++;                                                                                                 
+        }
+    }
+	strcat(result, "ended\n");
+	printf("%s", result);       
+	return result;                                                                                                  
+} 
+
 void transpose_image(image im)
 {
     assert(im.w == im.h);
@@ -505,8 +530,10 @@ image get_image_from_stream(CvCapture *cap)
     IplImage* src = cvQueryFrame(cap);
     if (!src) return make_empty_image(0,0,0);
     image im = ipl_to_image(src);
-    rgbgr_image(im);
-    return im;
+	image resized = resize_image(im, 640, 480);
+    rgbgr_image(resized);
+	free_image(im);
+    return resized;
 }
 
 void save_image_jpg(image p, const char *name)
