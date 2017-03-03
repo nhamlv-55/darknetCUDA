@@ -43,13 +43,18 @@ static int demo_index = 0;
 static image images[FRAMES];
 static float *avg;
 
+static int dx;
+static int dy;
+static int w;
+static int h;
+
+
 ////CLIENT SETUP
 static  struct sockaddr_un address;                                                                                  
 static  int  socket_fd, nbytes;                                                                                      
 //static  char result[1600];
 //static  char total[640*480*3+1600]; 
 //////////
-
 
 void img_print(image foo){
 	int i;
@@ -61,11 +66,15 @@ void img_print(image foo){
 
 void *fetch_in_thread(void *ptr)
 {
-    in = get_image_from_stream(cap);
-    if(!in.data){
+    image tmp = get_image_from_stream(cap);
+    if(!tmp.data){
         error("Stream closed.");
     }
-    in_s = resize_image(in, net.w, net.h);
+	image crop = crop_image(tmp, dx, dy, w, h);
+	in = resize_image(crop, 640, 480);
+    in_s = resize_image(crop, net.w, net.h);
+	free_image(tmp);
+	free_image(crop);
     return 0;
 }
 
@@ -121,11 +130,11 @@ void *detect_in_thread(void *ptr)
             count++;                                                                                          
         }                                                                                                     
     }                                                                                                         
-    strcat(result, "ended\n");
+    strcat(result, "2\nended\n");
 	strcat(total, result);
 //concat the pil
     image copy = copy_image(det);                                                                               
-    if(det.c == 3) rgbgr_image(copy);                                                                           
+    if(det.c == 3) 1+1 ;// rgbgr_image(copy);                                                                           
     int x,y,k;                                                                                                
                                                                                                             
     IplImage *disp = cvCreateImage(cvSize(det.w, det.h), IPL_DEPTH_8U, det.c);                                       
@@ -133,7 +142,7 @@ void *detect_in_thread(void *ptr)
     for(y = 0; y < det.h; ++y){                                                                                 
         for(x = 0; x < det.w; ++x){                                                                             
             for(k= 0; k < det.c; ++k){                                                                          
-                disp->imageData[y*step + x*det.c + k] = (unsigned char)(get_pixel(copy,x,y,k)*255);             
+                disp->imageData[y*step + x*det.c + k] = (unsigned char)(get_pixel(copy,x,y,k)*254 + 1);             
             }                                                                                                 
         }                                                                                                     
     }
@@ -156,6 +165,18 @@ double get_wall_time()
 
 void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh)
 {
+	int zoom[4];
+	printf("bbox %s", prefix);
+	char *token;
+	int i =0;
+	while ((token = strsep(&prefix, "x"))){
+		zoom[i] =atoi( token);
+		i++;
+	} 
+	dx = zoom[0];
+	dy = zoom[1];
+	w = zoom[2];
+	h = zoom[3];
     socket_fd = socket(PF_UNIX, SOCK_STREAM, 0);                                                                 
     if(socket_fd < 0)                                                                                            
     {                                                                                                            
@@ -234,11 +255,6 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
     }
 
     int count = 1;
-    if(!prefix){
-        cvNamedWindow("Demo", CV_WINDOW_NORMAL); 
-        cvMoveWindow("Demo", 0, 0);
-        cvResizeWindow("Demo", 1352, 1013);
-    }
 
     double before = get_wall_time();
 
@@ -249,7 +265,6 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
             if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
             if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
 
-		    save_image(disp, "/tmp/DockerPipes/defaultapp/sv02/inpipe2");
             pthread_join(fetch_thread, 0);
             pthread_join(detect_thread, 0);
 
