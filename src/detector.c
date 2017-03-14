@@ -500,6 +500,9 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
 void run_detector(int argc, char **argv)
 {
     char *prefix = find_char_arg(argc, argv, "-prefix", 0);
+    //CLEAN_UP [START]
+    char *socket_param = find_char_arg(argc, argv, "-socket_param", 0);
+    //CLEAN_UP [END]        
     float thresh = find_float_arg(argc, argv, "-thresh", .24);
     float hier_thresh = find_float_arg(argc, argv, "-hier", .5);
     int cam_index = find_int_arg(argc, argv, "-c", 0);
@@ -547,6 +550,6 @@ void run_detector(int argc, char **argv)
         int classes = option_find_int(options, "classes", 20);
         char *name_list = option_find_str(options, "names", "data/names.list");
         char **names = get_labels(name_list);
-        demo(cfg, weights, thresh, cam_index, filename, names, classes, frame_skip, prefix, hier_thresh);
+        demo(cfg, weights, thresh, cam_index, filename, names, classes, frame_skip, prefix, hier_thresh,socket_param); //CLEAN_UP
     }
 }

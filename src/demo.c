@@ -163,7 +163,8 @@ double get_wall_time()
     return (double)time.tv_sec + (double)time.tv_usec * .000001;
 }
 
-void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh)
+
+void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh,char *socket_param)// CLEAN_UP
 {
 	int zoom[4];
 	printf("bbox %s", prefix);
@@ -186,9 +187,11 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
 
     memset(&address, 0, sizeof(struct sockaddr_un));                                                             
                                                                                                               
-    address.sun_family = AF_UNIX;                                                                                
-    snprintf(address.sun_path, 30 , "/tmp/DockerPipes/sss"); 
-
+    address.sun_family = AF_UNIX;   
+    //CLEAN_UP [START]                                                        
+    snprintf(address.sun_path, 30 , socket_param); 
+    //snprintf(address.sun_path, 30 , "/tmp/DockerPipes/sss"); 
+    //CLEAN_UP [END]
     if(connect(socket_fd,                                                                                        
 		(struct sockaddr *) &address,                                                                     
         sizeof(struct sockaddr_un)) != 0)                                                                 
@@ -287,7 +290,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
     }
 }
 #else
-void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh)
+void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, float hier_thresh,char *socket_param)// CLEAN_UP
 {
     fprintf(stderr, "Demo needs OpenCV for webcam images.\n");
 }
